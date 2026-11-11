@@ -1,5 +1,8 @@
 TiltDrive Remote is an independent app and is not affiliated with or endorsed by BeamNG GmbH.
 
+The auto-connect and OutGauge details were cross-checked against the ISC-licensed fork
+https://github.com/umutsevimcann/beamng-remotecontrol (no code copied).
+
 The UDP protocol used to talk to BeamNG.drive was learned from the open-source project
 https://github.com/BeamNG/remotecontrol, distributed under the ISC license:
 

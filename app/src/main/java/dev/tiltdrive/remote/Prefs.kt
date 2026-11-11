@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 
 data class Settings(
@@ -14,6 +16,7 @@ data class Settings(
     val invert: Boolean = false,
     val analog: Boolean = false,  // pedals: slide up/down to modulate
     val haptics: Boolean = true,
+    val mph: Boolean = false,
 )
 
 class Prefs(ctx: Context) {
@@ -31,11 +34,12 @@ class Prefs(ctx: Context) {
         invert = sp.getBoolean("invert", false),
         analog = sp.getBoolean("analog", false),
         haptics = sp.getBoolean("haptics", true),
+        mph = sp.getBoolean("mph", false),
     )
 
     fun save(s: Settings) = sp.edit()
         .putFloat("range", s.range).putFloat("deadzone", s.deadzone)
-        .putBoolean("invert", s.invert).putBoolean("analog", s.analog).putBoolean("haptics", s.haptics)
+        .putBoolean("invert", s.invert).putBoolean("analog", s.analog).putBoolean("haptics", s.haptics).putBoolean("mph", s.mph)
         .apply()
 }
 
@@ -51,10 +55,21 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         prefs.save(s)
     }
 
+    init {
+        viewModelScope.launch {
+            link.foundCode.collect { c ->
+                if (c != null) {
+                    code = c
+                    prefs.lastCode = c
+                }
+            }
+        }
+    }
+
+    /** Auto-connect: tries the code we know (if any), otherwise finds the game on its own. */
     fun connect() {
-        prefs.lastCode = code
         prefs.lastHost = host
-        link.connect(code, host.ifBlank { null })
+        link.connect(code.ifBlank { null }, host.ifBlank { null })
     }
 
     override fun onCleared() {

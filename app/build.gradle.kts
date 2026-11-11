@@ -41,6 +41,4 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
-    // QR scanner from Google Play services: no camera permission needed in our app
-    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 }

@@ -1,6 +1,5 @@
 package dev.tiltdrive.remote
 
-import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,8 +26,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -67,9 +66,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
@@ -110,58 +106,63 @@ fun App(vm: DriveViewModel) {
 
 @Composable
 fun ConnectScreen(vm: DriveViewModel) {
-    val ctx = LocalContext.current
     val state by vm.link.state.collectAsStateWithLifecycle()
     val error by vm.link.error.collectAsStateWithLifecycle()
+    val progress by vm.link.progress.collectAsStateWithLifecycle()
     val searching = state == LinkState.Searching
-
-    fun scan() {
-        val opts = GmsBarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE).enableAutoZoom().build()
-        GmsBarcodeScanning.getClient(ctx, opts).startScan()
-            .addOnSuccessListener { b ->
-                val code = b.rawValue?.let(::parseQr)
-                if (code == null) {
-                    Toast.makeText(ctx, "This is not a game QR code", Toast.LENGTH_SHORT).show()
-                } else {
-                    vm.code = code
-                    vm.connect()
-                }
-            }
-            .addOnFailureListener {
-                Toast.makeText(ctx, "Scanner unavailable: enter the code manually", Toast.LENGTH_LONG).show()
-            }
-    }
+    val phoneIp = remember { vm.link.phoneIp() }
 
     Row(
         Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(32.dp),
     ) {
-        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
-            Wheel(angle = -18f, modifier = Modifier.size(84.dp))
-            Spacer(Modifier.height(12.dp))
-            Text("TiltDrive", fontSize = 36.sp, fontWeight = FontWeight.Black)
-            Text("Use your phone as a steering wheel", color = Dim, fontSize = 15.sp)
-            Spacer(Modifier.height(20.dp))
+        Column(
+            Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Wheel(angle = -18f, modifier = Modifier.size(72.dp))
+            Spacer(Modifier.height(8.dp))
+            Text("TiltDrive", fontSize = 34.sp, fontWeight = FontWeight.Black)
+            Text("Use your phone as a steering wheel", color = Dim, fontSize = 14.sp)
+            Spacer(Modifier.height(14.dp))
             Step("1", "Phone and PC on the same Wi-Fi")
-            Step("2", "In the game, open the remote controller and show the QR code")
-            Step("3", "Scan it and drive. Tilt = steer, right half = gas, left half = brake")
+            Step("2", "In the game: Options → Controls → Hardware → “Use your phone or tablet” = Yes")
+            Step("3", "Tap AUTO-CONNECT. Tilt to steer, right half = gas, left half = brake")
+            Spacer(Modifier.height(14.dp))
+            Text("Dashboard (optional)", color = Accent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(
+                "In the game: Options → Advanced → Protocols → OutGauge. Address ${phoneIp ?: "(join the Wi-Fi first)"}, " +
+                    "port 4445, rate 60. Then reload the car (Ctrl+R).",
+                color = Color(0xFFC5CEDB), fontSize = 13.sp,
+            )
         }
         Column(
             Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.Center,
         ) {
             Button(
-                onClick = ::scan, enabled = !searching,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                onClick = { vm.autoConnect() }, enabled = !searching,
+                modifier = Modifier.fillMaxWidth().height(60.dp),
                 shape = RoundedCornerShape(16.dp),
-            ) { Text("Scan QR code", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
-            Spacer(Modifier.height(16.dp))
-            Text("or connect manually", color = Dim, fontSize = 13.sp)
+            ) { Text("AUTO-CONNECT", fontSize = 18.sp, fontWeight = FontWeight.Black) }
+            Spacer(Modifier.height(10.dp))
+            if (searching) {
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Looking for the game… ${(progress * 100).roundToInt()}%", color = Dim, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { vm.link.disconnect() }) { Text("Cancel") }
+                }
+            } else if (state == LinkState.Failed && error != null) {
+                Text(error ?: "", color = BrakeCol, fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("Know the 5-digit code? Connect with it", color = Dim, fontSize = 13.sp)
             Spacer(Modifier.height(6.dp))
             OutlinedTextField(
-                value = vm.code, onValueChange = { vm.code = it }, singleLine = true,
-                label = { Text("Security code") }, modifier = Modifier.fillMaxWidth(),
+                value = vm.code, onValueChange = { vm.code = it.filter(Char::isDigit).take(5) }, singleLine = true,
+                label = { Text("Code") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(6.dp))
             OutlinedTextField(
@@ -170,23 +171,11 @@ fun ConnectScreen(vm: DriveViewModel) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             OutlinedButton(
-                onClick = { vm.connect() }, enabled = !searching && vm.code.isNotBlank(),
+                onClick = { vm.connectManual() }, enabled = !searching && vm.code.length == 5,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Connect") }
-            Spacer(Modifier.height(12.dp))
-            if (searching) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Looking for the game…", color = Dim)
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = { vm.link.disconnect() }) { Text("Cancel") }
-                }
-            } else if (state == LinkState.Failed && error != null) {
-                Text(error ?: "", color = BrakeCol, fontSize = 13.sp)
-            }
         }
     }
 }
@@ -212,7 +201,6 @@ fun DriveScreen(vm: DriveViewModel) {
     val view = LocalView.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val tel by link.telemetry.collectAsStateWithLifecycle()
-    val latency by link.latencyMs.collectAsStateWithLifecycle()
     val stale by link.stale.collectAsStateWithLifecycle()
 
     val tilt = remember {
@@ -253,10 +241,9 @@ fun DriveScreen(vm: DriveViewModel) {
         Column(Modifier.weight(2.3f).fillMaxHeight()) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 val (txt, col) = when {
-                    stale -> "Waiting for game…" to Accent
-                    latency < 40 -> "Delay $latency ms" to Gas
-                    latency < 100 -> "Delay $latency ms" to Accent
-                    else -> "Delay $latency ms" to BrakeCol
+                    tel == null -> "Connected · dashboard off (set up OutGauge)" to Accent
+                    stale -> "No telemetry from the game" to Accent
+                    else -> "Connected" to Gas
                 }
                 Text(txt, color = col, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 TextButton(onClick = { trim = tilt.angleDeg }) { Text("Center") }
@@ -269,7 +256,7 @@ fun DriveScreen(vm: DriveViewModel) {
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 Wheel(angle = wheelDeg, modifier = Modifier.size(150.dp))
-                Hud(tel)
+                Hud(tel, settings.mph)
             }
         }
         Pedal("GAS", Gas, settings.analog, settings.haptics, Modifier.weight(0.85f).fillMaxHeight()) {
@@ -283,7 +270,7 @@ fun DriveScreen(vm: DriveViewModel) {
 }
 
 @Composable
-private fun Hud(t: Telemetry?) {
+private fun Hud(t: Telemetry?, mph: Boolean) {
     var peak by remember { mutableFloatStateOf(3000f) }
     if (t != null) peak = max(peak, t.rpm)
     val maxRpm = if (peak <= 1.5f) 1f else max(peak, 3000f) * 1.08f
@@ -292,11 +279,11 @@ private fun Hud(t: Telemetry?) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
-                (t?.speedDisplay ?: 0f).roundToInt().toString(),
+                (t?.speed(mph) ?: 0f).roundToInt().toString(),
                 fontSize = 64.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace,
             )
             Spacer(Modifier.width(6.dp))
-            Text(if (t == null || t.usesKmh) "km/h" else "mph", color = Dim, modifier = Modifier.padding(bottom = 12.dp))
+            Text(if (mph) "mph" else "km/h", color = Dim, modifier = Modifier.padding(bottom = 12.dp))
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -317,6 +304,7 @@ private fun Hud(t: Telemetry?) {
             Lamp("▶", t?.lamp(Lights.SIGNAL_R) == true, Gas)
             Lamp("HI", t?.lamp(Lights.FULLBEAM) == true, Color(0xFF4DA3FF))
             Lamp("ABS", t?.lamp(Lights.ABS) == true, Accent)
+            Lamp("TC", t?.lamp(Lights.TC) == true, Accent)
             Lamp("P", t?.lamp(Lights.HANDBRAKE) == true, BrakeCol)
         }
         if (t != null) {
@@ -423,6 +411,7 @@ private fun SettingsDialog(s: Settings, onChange: (Settings) -> Unit, onClose: (
                 SwitchRow("Reverse steering", s.invert) { onChange(s.copy(invert = it)) }
                 SwitchRow("Analog pedals (slide to modulate)", s.analog) { onChange(s.copy(analog = it)) }
                 SwitchRow("Vibration", s.haptics) { onChange(s.copy(haptics = it)) }
+                SwitchRow("Speed in mph", s.mph) { onChange(s.copy(mph = it)) }
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Unofficial app, not affiliated with BeamNG. Protocol info from " +
